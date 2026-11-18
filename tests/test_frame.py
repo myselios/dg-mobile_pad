@@ -46,10 +46,12 @@ def test_hand_lost_turns_off_and_stays_off():
     f.step(None, 0.6)
     assert buttons(m)[-1] == ("button", False) and not c.button_down   # button released at once
     assert c.enabled                                                    # control survives a short gap
-    assert f.step(None, 0.95) == "OFF: hand lost" and not c.enabled    # gone > 0.3 s: off
+    f.step(None, 1.2)
+    assert c.enabled                                                    # still within 1 s grace
+    assert f.step(None, 1.65) == "OFF: hand lost" and not c.enabled    # gone > 1 s: off
     n = len(m.calls)
     for i in range(10):
-        f.step(point_index(), 1 + i / 10)
+        f.step(point_index(), 2 + i / 10)
     assert len(m.calls) == n
 
 
@@ -148,3 +150,12 @@ def test_one_dropped_frame_keeps_control_and_cursor():
     f.step(None, 0.033)
     f.step(shift(pinch(0.5), 0.05, 0), 0.066)
     assert c.enabled and m.calls[-1][0] == "move"
+
+
+def test_fist_one_second_turns_on():
+    m, c, f = setup(enabled=False)
+    for i in range(10):
+        f.step(fist(), i / 10)
+    assert not c.enabled
+    f.step(fist(), 1.0)
+    assert c.enabled

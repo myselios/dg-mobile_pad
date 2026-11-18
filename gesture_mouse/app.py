@@ -167,13 +167,16 @@ def run(cap, controller, mouse, screen, actions):
 
                 fps = 0.9 * fps + 0.1 / max(now - prev, 1e-6)
                 prev = now
-                lines = ["CONTROL ON" if controller.enabled else "MODE: PREVIEW (t / fist 2s)",
+                lines = ["CONTROL ON" if controller.enabled else "MODE: PREVIEW (t / fist 1s)",
                          f"FPS {fps:.0f}  pose {logic.pose}  pinch {logic.ratio:.2f}  {note}"]
                 tag = "dry" if isinstance(mouse, LogMouse) else "sent"
                 lines += [f"{tag}: {c}" for c in list(mouse.calls)[-3:]]
                 if isinstance(actions, LogActions) and actions.calls:
                     lines.append(f"dry action: {actions.calls[-1]}")
                 draw(frame, lm, lines)
+                if not controller.enabled:  # big and red so "nothing happens" is never a mystery
+                    cv2.putText(frame, "OFF  (fist 1s)", (10, frame.shape[0] - 30), cv2.FONT_HERSHEY_SIMPLEX,
+                                2.0, (0, 0, 255), 5)
                 cv2.imshow(WINDOW, frame)
                 stats.add("draw", time.monotonic() - t_draw)
                 stats.frame(lm is not None, logic.pose, controller.enabled)

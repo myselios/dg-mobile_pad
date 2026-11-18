@@ -1,6 +1,6 @@
 """Per-frame gesture -> mouse/app-action logic (stdlib only, testable in Docker).
 
-Poses: fist 2s = control on/off; index = cursor; pinch = click/drag; index+middle = scroll;
+Poses: fist 1s = control on/off; index = cursor; pinch = click/drag; index+middle = scroll;
 still open palm 1s = open YouTube; palm swipe left/right = next/previous video; phone sign = voice search.
 Mouse events and actions only happen while control is ON.
 """
@@ -9,7 +9,7 @@ from gesture_mouse.gestures import (HoldTimer, OneEuroFilter, PinchDetector, Swi
                                     pinch_ratio, scroll_delta)
 
 FREEZE_RATIO = 0.35  # between press (0.25) and release (0.40): hold the cursor while a click is forming
-LOST_GRACE_S = 0.3  # tracking often drops a frame or two; turn control off only after this long
+LOST_GRACE_S = 1.0  # hand briefly leaving the frame should not drop control (field data: 0.3 s was too strict)
 STILL_DX = 0.01      # palm counts as still if the wrist moved less than this since the last frame
 
 
@@ -18,7 +18,7 @@ class FrameLogic:
         self.c = controller
         self.screen = screen
         self.actions = actions
-        self.fist_hold = HoldTimer(2.0)
+        self.fist_hold = HoldTimer(1.0)
         self.palm_hold = HoldTimer(1.0)
         self.call_hold = HoldTimer(0.5)
         self.swipe = SwipeDetector()
