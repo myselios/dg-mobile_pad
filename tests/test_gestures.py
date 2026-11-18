@@ -72,3 +72,27 @@ def test_one_euro_follows_large_move():
 def test_one_euro_reset():
     f = OneEuroFilter(); f(0.1, 0); f.reset()
     assert f(0.9, 1) == 0.9
+
+
+from gesture_mouse.gestures import PinchDetector  # noqa: E402
+
+
+def test_pinch_hysteresis():
+    p = PinchDetector()
+    seq = [(0.5, 0), (0.2, 0.1), (0.3, 0.2), (0.35, 0.3), (0.45, 0.4)]
+    assert [p.update(r, t) for r, t in seq] == [None, "down", None, None, "up"]
+
+
+def test_pinch_cooldown():
+    p = PinchDetector(); p.update(0.2, 0); p.update(0.5, 0.1)
+    assert p.update(0.2, 0.2) is None and p.update(0.5, 0.25) is None and p.update(0.2, 0.5) == "down"
+
+
+def test_pinch_no_flicker_in_band():
+    p = PinchDetector(); p.update(0.2, 0)
+    assert [p.update(r, 0.1 * i) for i, r in enumerate([0.26, 0.39, 0.27, 0.38], 1)] == [None] * 4 and p.pressed
+
+
+def test_pinch_reset_clears_pressed():
+    p = PinchDetector(); p.update(0.2, 0); p.reset()
+    assert not p.pressed and p.update(0.5, 0.1) is None

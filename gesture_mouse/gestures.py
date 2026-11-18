@@ -82,3 +82,25 @@ class OneEuroFilter:
         self._x = a * x + (1 - a) * self._x
         self._t = t
         return self._x
+
+
+class PinchDetector:
+    """Pinch with hysteresis (press < `press`, release > `release`) and a cooldown after each release."""
+
+    def __init__(self, press=0.25, release=0.40, cooldown_s=0.3):
+        self.press, self.release, self.cooldown_s = press, release, cooldown_s
+        self.pressed = False
+        self._last_up = float("-inf")
+
+    def reset(self):
+        self.pressed = False
+
+    def update(self, ratio, now):
+        if self.pressed and ratio > self.release:
+            self.pressed = False
+            self._last_up = now
+            return "up"
+        if not self.pressed and ratio < self.press and now - self._last_up >= self.cooldown_s:
+            self.pressed = True
+            return "down"
+        return None

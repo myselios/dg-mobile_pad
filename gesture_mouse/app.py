@@ -8,7 +8,8 @@ from pathlib import Path
 import cv2
 import mediapipe as mp
 
-from gesture_mouse.gestures import HoldTimer, OneEuroFilter, is_open_palm, map_to_screen
+from gesture_mouse.gestures import (HoldTimer, OneEuroFilter, PinchDetector, is_open_palm, map_to_screen,
+                                    pinch_ratio)
 from gesture_mouse.safety import Controller, LogMouse, cleanup
 
 MODEL = Path(__file__).resolve().parent.parent / "models" / "hand_landmarker.task"
@@ -47,6 +48,8 @@ def run(cap, controller, mouse, screen):
         running_mode=vision.RunningMode.VIDEO, num_hands=1)
     palm = HoldTimer(2.0)
     fx, fy = OneEuroFilter(), OneEuroFilter()
+    pinch = PinchDetector()
+    ratio = 0.0
     note = ""
     t0, last_ts, fps, prev = time.monotonic(), -1, 0.0, time.monotonic()
     with vision.HandLandmarker.create_from_options(options) as landmarker:
@@ -64,27 +67,35 @@ def run(cap, controller, mouse, screen):
             lm = to_landmarks(landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), ts))
 
             if lm is None:
-                fx.reset(); fy.reset()
+                fx.reset(); fy.reset(); pinch.reset()
                 if controller.enabled:
                     controller.hand_lost()
                     note = "OFF: hand lost"
                 palm.update(False, now)
             elif palm.update(is_open_palm(lm), now):
                 controller.toggle()
+                pinch.reset()
                 note = "toggled by palm"
             if lm is not None:
                 controller.move(*map_to_screen(fx(lm[8][0], now), fy(lm[8][1], now), *screen))
+                ratio = pinch_ratio(lm)
+                event = pinch.update(ratio, now)
+                if event == "down":
+                    controller.press()
+                elif event == "up":
+                    controller.release()
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 return
             if key == ord("t"):
                 controller.toggle()
+                pinch.reset()
                 note = "toggled by key"
 
             fps = 0.9 * fps + 0.1 / max(now - prev, 1e-6)
             prev = now
-            lines = ["CONTROL ON" if controller.enabled else "MODE: PREVIEW (t / palm 2s)", f"FPS {fps:.0f}  {note}"]
+            lines = ["CONTROL ON" if controller.enabled else "MODE: PREVIEW (t / palm 2s)", f"FPS {fps:.0f}  pinch {ratio:.2f}  {note}"]
             if isinstance(mouse, LogMouse):
                 lines += [f"dry: {c}" for c in mouse.calls[-3:]]
             draw(frame, lm, lines)
