@@ -27,6 +27,7 @@ class FrameLogic:
         self.palm_x = None
         self.palm_swiped = False
         self.ratio = 0.0
+        self.pose = "-"  # shown on the overlay for debugging
 
     def toggle(self, now):
         self.c.toggle()
@@ -47,6 +48,7 @@ class FrameLogic:
     def step(self, lm, now):
         """Process one frame's landmarks (None = no hand). Returns a status note or None."""
         if lm is None:
+            self.pose = "no hand"
             self.fx.reset(); self.fy.reset(); self.pinch.reset()
             self.scroll_y = None
             self.fist_hold.update(False, now); self.call_hold.update(False, now)
@@ -65,6 +67,7 @@ class FrameLogic:
             note = self._act("voice_search") or note
 
         if is_open_palm(lm) and not dragging:
+            self.pose = "palm"
             self.fx.reset(); self.fy.reset(); self.pinch.reset(); self.scroll_y = None
             x = lm[0][0]
             direction = self.swipe.update(x, now)
@@ -79,6 +82,7 @@ class FrameLogic:
         self._end_palm(now)
 
         if is_scroll_pose(lm) and not dragging:
+            self.pose = "scroll"
             self.c.release()  # no-op unless something else pressed; never leave a button down
             self.fx.reset(); self.fy.reset(); self.pinch.reset()
             y = (lm[8][1] + lm[12][1]) / 2
@@ -91,9 +95,11 @@ class FrameLogic:
         self.scroll_y = None
 
         if not (dragging or finger_extended(lm, "index")):
+            self.pose = "fist" if is_fist(lm) else "call" if is_call_pose(lm) else "other"
             return note  # fist, phone sign, etc.: no cursor
 
         self.ratio = pinch_ratio(lm)
+        self.pose = "drag" if dragging else "point" if self.ratio >= FREEZE_RATIO else "pinching"
         x, y = self.fx(lm[8][0], now), self.fy(lm[8][1], now)
         if self.pinch.pressed or self.ratio >= FREEZE_RATIO:
             self.c.move(*map_to_screen(x, y, *self.screen))

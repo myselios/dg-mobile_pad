@@ -4,6 +4,7 @@ import signal
 import sys
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 import cv2
@@ -39,6 +40,17 @@ def draw(frame, lm, lines):
             cv2.circle(frame, p, 4, (0, 200, 255), -1)
     for i, text in enumerate(lines):
         cv2.putText(frame, text, (10, 30 + 28 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+
+
+class Recorded:
+    """Forwards to the real mouse and remembers the last few calls for the overlay."""
+
+    def __init__(self, inner):
+        self.inner, self.calls = inner, deque(maxlen=3)
+
+    def move(self, x, y): self.calls.append(("move", x, y)); self.inner.move(x, y)
+    def button(self, down): self.calls.append(("button", down)); self.inner.button(down)
+    def scroll(self, dy): self.calls.append(("scroll", dy)); self.inner.scroll(dy)
 
 
 STALL_S = 1.0  # no new frame for this long while control is ON -> OFF
@@ -89,9 +101,9 @@ def run(cap, controller, mouse, screen, actions):
                 fps = 0.9 * fps + 0.1 / max(now - prev, 1e-6)
                 prev = now
                 lines = ["CONTROL ON" if controller.enabled else "MODE: PREVIEW (t / fist 2s)",
-                         f"FPS {fps:.0f}  pinch {logic.ratio:.2f}  {note}"]
-                if isinstance(mouse, LogMouse):
-                    lines += [f"dry: {c}" for c in mouse.calls[-3:]]
+                         f"FPS {fps:.0f}  pose {logic.pose}  pinch {logic.ratio:.2f}  {note}"]
+                tag = "dry" if isinstance(mouse, LogMouse) else "sent"
+                lines += [f"{tag}: {c}" for c in list(mouse.calls)[-3:]]
                 if isinstance(actions, LogActions) and actions.calls:
                     lines.append(f"dry action: {actions.calls[-1]}")
                 draw(frame, lm, lines)
@@ -119,7 +131,7 @@ def main(argv=None):
     else:
         from gesture_mouse.actions import SafariYouTube
         from gesture_mouse.mouse import QuartzMouse, can_post_events, screen_size
-        mouse, screen, actions = QuartzMouse(), screen_size(), SafariYouTube()
+        mouse, screen, actions = Recorded(QuartzMouse()), screen_size(), SafariYouTube()
         if can_post_events() is False:
             print("[주의] 손쉬운 사용 권한이 없어 커서 이벤트가 무시됩니다. 위 권한 안내를 확인하세요.", flush=True)
     controller = Controller(mouse)
