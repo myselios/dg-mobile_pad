@@ -8,8 +8,8 @@ from pathlib import Path
 import cv2
 import mediapipe as mp
 
-from gesture_mouse.gestures import (HoldTimer, OneEuroFilter, PinchDetector, is_open_palm, map_to_screen,
-                                    pinch_ratio)
+from gesture_mouse.gestures import (HoldTimer, OneEuroFilter, PinchDetector, is_open_palm, is_scroll_pose,
+                                    map_to_screen, pinch_ratio, scroll_delta)
 from gesture_mouse.safety import Controller, LogMouse, cleanup
 
 MODEL = Path(__file__).resolve().parent.parent / "models" / "hand_landmarker.task"
@@ -49,6 +49,7 @@ def run(cap, controller, mouse, screen):
     palm = HoldTimer(2.0)
     fx, fy = OneEuroFilter(), OneEuroFilter()
     pinch = PinchDetector()
+    scroll_y = None
     ratio = 0.0
     note = ""
     t0, last_ts, fps, prev = time.monotonic(), -1, 0.0, time.monotonic()
@@ -68,6 +69,7 @@ def run(cap, controller, mouse, screen):
 
             if lm is None:
                 fx.reset(); fy.reset(); pinch.reset()
+                scroll_y = None
                 if controller.enabled:
                     controller.hand_lost()
                     note = "OFF: hand lost"
@@ -76,7 +78,17 @@ def run(cap, controller, mouse, screen):
                 controller.toggle()
                 pinch.reset()
                 note = "toggled by palm"
-            if lm is not None:
+            if lm is not None and is_scroll_pose(lm):
+                # Scroll mode: no cursor move, no pinch; release any held button first.
+                controller.release(); pinch.reset(); fx.reset(); fy.reset()
+                y = (lm[8][1] + lm[12][1]) / 2
+                if scroll_y is None:
+                    scroll_y = y
+                elif dy := scroll_delta(scroll_y, y):
+                    controller.scroll(dy)
+                    scroll_y = y  # keep the anchor until we scroll, so slow moves still add up
+            elif lm is not None:
+                scroll_y = None
                 controller.move(*map_to_screen(fx(lm[8][0], now), fy(lm[8][1], now), *screen))
                 ratio = pinch_ratio(lm)
                 event = pinch.update(ratio, now)

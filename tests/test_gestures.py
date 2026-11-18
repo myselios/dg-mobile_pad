@@ -96,3 +96,18 @@ def test_pinch_no_flicker_in_band():
 def test_pinch_reset_clears_pressed():
     p = PinchDetector(); p.update(0.2, 0); p.reset()
     assert not p.pressed and p.update(0.5, 0.1) is None
+
+
+from gesture_mouse.gestures import scroll_delta  # noqa: E402
+
+
+def test_scroll_direction():
+    assert scroll_delta(0.5, 0.45) > 0 and scroll_delta(0.5, 0.55) < 0
+
+
+def test_scroll_deadzone():
+    assert scroll_delta(0.5, 0.503) == 0 and scroll_delta(0.5, 0.497) == 0
+
+
+def test_scroll_gain():
+    assert scroll_delta(0.5, 0.49, gain=2000.0) == 20

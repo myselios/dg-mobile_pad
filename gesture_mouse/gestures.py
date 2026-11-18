@@ -104,3 +104,9 @@ class PinchDetector:
             self.pressed = True
             return "down"
         return None
+
+
+def scroll_delta(prev_y, y, gain=2000.0, deadzone=0.005):
+    """Pixels to scroll; hand moving up (y decreasing) scrolls up (positive)."""
+    dy = prev_y - y
+    return 0 if abs(dy) < deadzone else round(dy * gain)
