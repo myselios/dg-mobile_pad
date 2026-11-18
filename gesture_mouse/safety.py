@@ -1,5 +1,5 @@
 """Safety gate: every mouse event goes through Controller, which starts OFF."""
-from typing import Callable, Protocol
+from typing import Protocol
 
 
 class Mouse(Protocol):
@@ -85,12 +85,3 @@ class Controller:
         finally:
             self.enabled = False
 
-
-def cleanup(controller: Controller, release_camera: Callable[[], None]) -> None:
-    """Fixed order: release button -> control off -> camera."""
-    try:
-        controller.shutdown()
-        print("[cleanup] button released, control off", flush=True)
-    finally:
-        release_camera()
-        print("[cleanup] camera released", flush=True)

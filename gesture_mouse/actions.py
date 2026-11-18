@@ -42,7 +42,7 @@ class SafariYouTube:
         print("[action] open_youtube", flush=True)
 
     def _js(self, name):
-        # Off the camera loop so a slow or blocked AppleScript never stalls tracking.
+        # Off the server loop so a slow or blocked AppleScript never stalls input.
         threading.Thread(target=_run, args=(name, applescript(JS[name])), daemon=True).start()
 
     def next_video(self): self._js("next_video")
