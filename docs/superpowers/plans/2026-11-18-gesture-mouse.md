@@ -247,3 +247,14 @@ def test_scroll_deadzone():   assert scroll_delta(0.5, 0.503) == 0
 ## 추가 (2026-11-18): 유튜브 제스처
 
 사용자 요청으로 한 모드에 섞음. 제스처 재배치: 주먹 2초 = 제어 켜기/끄기(손바닥에서 이동), 정지한 손바닥 1초 = Safari에서 유튜브 열기, 손바닥 좌/우 스와이프 = 다음/이전 영상, 🤙 0.5초 = 음성검색(마이크 버튼, 없으면 검색창 포커스). 모든 동작은 제어 ON일 때만. 구현: `gestures.py`(is_fist, is_call_pose, SwipeDetector, OK사인 오인 방지), `frame.py`(통합), `actions.py`(Safari JS via AppleScript), `safety.LogActions`(dry-run).
+
+---
+
+## 방향 전환 (2026-11-18): 안드로이드 휴대폰 웹 트랙패드
+
+카메라 인식 품질 문제로 사용자가 "휴대폰만"을 선택. 카메라 모드 코드는 남기되 더 손대지 않음.
+
+- 맥: `python -m gesture_mouse.remote [--dry-run] [--port 8765]` — websockets 서버가 같은 포트에서 HTTP(트랙패드 페이지)와 WebSocket을 모두 처리. 실행마다 `secrets.token_urlsafe` 토큰 생성, 토큰이 맞는 단일 클라이언트만 허용. 주소는 터미널 QR로 표시.
+- 휴대폰 페이지(`gesture_mouse/remote_page.html`): 한 손가락 이동, 탭=클릭, 두 손가락 탭=우클릭, 두 손가락 위아래=스크롤, 두 번 탭 후 끌기=드래그, 버튼(유튜브/이전/음성/다음/ON·OFF).
+- `gesture_mouse/remote_logic.py`(stdlib, Docker 테스트): `RemoteHandler.handle(msg)` → `Controller`. 상대 이동 + 가속, 화면 클램프.
+- 안전: 연결 시 ON, 연결 끊김/핑 실패 → `shutdown()`(버튼 해제+OFF), 휴대폰 OFF 버튼, Ctrl-C 정리 경로 유지.

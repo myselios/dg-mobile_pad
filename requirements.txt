@@ -1,3 +1,5 @@
 mediapipe==1.2.3
 pyobjc-framework-Quartz==13.0
 pytest
+websockets==17.4
+qrcode==8.2

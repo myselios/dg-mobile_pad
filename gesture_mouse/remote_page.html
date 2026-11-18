@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>맥 트랙패드</title>
+<style>
+  :root { --bg: #111; --pad: #1c1c1e; --fg: #eee; --dim: #888; --on: #30d158; --off: #ff453a; --btn: #2c2c2e; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 16px -apple-system, system-ui, sans-serif; overscroll-behavior: none; }
+  body { display: flex; flex-direction: column; padding: 12px 16px; box-sizing: border-box; gap: 12px; }
+  #bar { display: flex; align-items: center; gap: 10px; }
+  #status { flex: 1; color: var(--dim); font-size: 14px; }
+  #toggle { border: 0; border-radius: 999px; padding: 10px 18px; font-weight: 700; font-size: 16px; color: #000; background: var(--off); }
+  #toggle.on { background: var(--on); }
+  #pad { flex: 1; background: var(--pad); border-radius: 18px; touch-action: none; display: flex;
+    align-items: center; justify-content: center; color: #444; text-align: center; line-height: 1.7; font-size: 14px; user-select: none; }
+  #pad.off { outline: 3px solid var(--off); }
+  #keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  #keys button { border: 0; border-radius: 14px; padding: 16px 0; font-size: 22px; background: var(--btn); color: var(--fg); }
+  #keys button:active, #toggle:active { filter: brightness(1.4); }
+</style>
+</head>
+<body>
+  <div id="bar"><span id="status">연결 중…</span><button id="toggle">OFF</button></div>
+  <div id="pad">한 손가락: 커서 · 탭: 클릭<br>두 번 탭 후 끌기: 드래그<br>두 손가락 위아래: 스크롤 · 두 손가락 탭: 우클릭</div>
+  <div id="keys">
+    <button data-a="open_youtube" aria-label="유튜브 열기">▶︎</button>
+    <button data-a="prev_video" aria-label="이전 영상">⏮</button>
+    <button data-a="voice_search" aria-label="음성검색">🎤</button>
+    <button data-a="next_video" aria-label="다음 영상">⏭</button>
+  </div>
+<script>
+const key = new URLSearchParams(location.search).get('k') || '';
+const $ = id => document.getElementById(id);
+let ws = null, on = false;
+
+function send(m) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); }
+function render() {
+  $('toggle').textContent = on ? 'ON' : 'OFF';
+  $('toggle').classList.toggle('on', on);
+  $('pad').classList.toggle('off', !on);
+}
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws?k=${encodeURIComponent(key)}`);
+  ws.onopen = () => { $('status').textContent = '연결됨'; send({ t: 'on' }); };
+  ws.onmessage = e => { const m = JSON.parse(e.data); if ('on' in m) { on = m.on; render(); } };
+  ws.onclose = e => {
+    on = false; render();
+    $('status').textContent = e.code === 1013 ? '다른 휴대폰이 연결되어 있음' : '끊김 · 다시 연결 중…';
+    setTimeout(connect, 1000);
+  };
+}
+
+$('toggle').onclick = () => send({ t: on ? 'off' : 'on' });
+document.querySelectorAll('#keys button').forEach(b => b.onclick = () => send({ t: 'action', name: b.dataset.a }));
+
+// --- touch → trackpad ---
+const pad = $('pad');
+const TAP_MS = 220, TAP_MOVE = 10, DOUBLE_TAP_MS = 300, SCROLL_GAIN = 2;
+let last = null, startT = 0, moved = 0, maxTouches = 0, lastTapEnd = 0, dragArmed = false, dragging = false;
+let acc = { dx: 0, dy: 0, sy: 0 }, scheduled = false;
+
+function center(ts) {
+  let x = 0, y = 0;
+  for (const t of ts) { x += t.clientX; y += t.clientY; }
+  return { x: x / ts.length, y: y / ts.length, n: ts.length };
+}
+function flush() {
+  scheduled = false;
+  if (acc.dx || acc.dy) send({ t: 'move', dx: acc.dx, dy: acc.dy });
+  if (Math.abs(acc.sy) >= 1) { send({ t: 'scroll', dy: Math.round(acc.sy) }); acc.sy -= Math.round(acc.sy); }
+  acc.dx = acc.dy = 0;
+}
+function queue() { if (!scheduled) { scheduled = true; requestAnimationFrame(flush); } }
+
+pad.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    startT = performance.now(); moved = 0; maxTouches = 1;
+    dragArmed = startT - lastTapEnd < DOUBLE_TAP_MS;
+  }
+  maxTouches = Math.max(maxTouches, e.touches.length);
+  last = center(e.touches);
+}, { passive: false });
+
+pad.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const c = center(e.touches);
+  if (!last || c.n !== last.n) { last = c; return; }  // finger count changed: re-anchor, no jump
+  const dx = c.x - last.x, dy = c.y - last.y;
+  moved += Math.abs(dx) + Math.abs(dy);
+  if (c.n === 1) {
+    if (dragArmed && !dragging && moved > TAP_MOVE) { dragging = true; send({ t: 'down' }); }
+    acc.dx += dx; acc.dy += dy;
+  } else if (c.n === 2) {
+    acc.sy += dy * SCROLL_GAIN;
+  }
+  last = c; queue();
+}, { passive: false });
+
+function end(e) {
+  e.preventDefault();
+  if (e.touches.length) { last = center(e.touches); return; }
+  flush();
+  const dt = performance.now() - startT;
+  if (dragging) { send({ t: 'up' }); dragging = false; }
+  else if (maxTouches === 2 && dt < TAP_MS * 1.5 && moved < TAP_MOVE * 2) send({ t: 'right' });
+  else if (maxTouches === 1 && dt < TAP_MS && moved < TAP_MOVE) { send({ t: 'click' }); lastTapEnd = performance.now(); }
+  dragArmed = false; maxTouches = 0; last = null;
+}
+pad.addEventListener('touchend', end, { passive: false });
+pad.addEventListener('touchcancel', end, { passive: false });
+
+render();
+connect();
+</script>
+</body>
+</html>

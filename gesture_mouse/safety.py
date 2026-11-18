@@ -6,6 +6,7 @@ class Mouse(Protocol):
     def move(self, x: int, y: int) -> None: ...
     def button(self, down: bool) -> None: ...
     def scroll(self, dy: int) -> None: ...
+    def right_click(self) -> None: ...
 
 
 class LogMouse:
@@ -17,6 +18,7 @@ class LogMouse:
     def move(self, x, y): self.calls.append(("move", x, y))
     def button(self, down): self.calls.append(("button", down))
     def scroll(self, dy): self.calls.append(("scroll", dy))
+    def right_click(self): self.calls.append(("right",))
 
 
 class LogActions:
@@ -61,6 +63,10 @@ class Controller:
     def scroll(self, dy):
         if self.enabled and dy:
             self.mouse.scroll(dy)
+
+    def right_click(self):
+        if self.enabled:
+            self.mouse.right_click()
 
     def hand_lost(self):
         self._off()
