@@ -34,6 +34,11 @@ public class HidTest {
         List<byte[]> scroll = Hid.move(0, 0, 0, -3);
         check(scroll.size() == 1 && scroll.get(0)[3] == -3, "wheel goes in byte 3");
 
+        byte[] k = Hid.key(Hid.MOD_GUI, Hid.KEY_LEFT_BRACKET);
+        check(k.length == 8 && k[0] == 0x08 && k[2] == 0x2F, "Cmd+[ keyboard report");
+        byte[] c = Hid.consumer(Hid.AC_BACK);
+        check(c.length == 2 && c[0] == 0x24 && c[1] == 0x02, "AC Back little-endian");
+
         System.out.println("HidTest OK");
     }
 }

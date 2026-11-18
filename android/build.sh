@@ -5,8 +5,8 @@ BT=$ANDROID_HOME/build-tools/34.0.0
 JAR=$ANDROID_HOME/platforms/android-34/android.jar
 rm -rf build && mkdir -p build/classes build/test build/dex
 # Unit tests for the pure-Java parts (no Android needed).
-javac -d build/test src/local/trackpad/Hid.java test/*.java
-java -ea -cp build/test HidTest
+javac -d build/test src/local/trackpad/Hid.java src/local/trackpad/TwoFinger.java test/*.java
+java -ea -cp build/test HidTest && java -ea -cp build/test TwoFingerTest
 javac --release 11 -cp "$JAR" -d build/classes $(find src -name '*.java')
 "$BT/d8" --lib "$JAR" --min-api 28 --output build/dex $(find build/classes -name '*.class')
 "$BT/aapt2" link -o build/base.apk --manifest AndroidManifest.xml -I "$JAR" --min-sdk-version 28 --target-sdk-version 34

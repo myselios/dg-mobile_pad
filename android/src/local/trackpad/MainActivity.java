@@ -40,9 +40,9 @@ public class MainActivity extends Activity {
     private LinearLayout hosts;
     private float density, lastX, lastY, fracX, fracY, moved;
     private long downT;
-    private final Hid.Wheel wheel = new Hid.Wheel(SCROLL_STEP_DP);
+    private final TwoFinger two = new TwoFinger(12, 60, SCROLL_STEP_DP);
     private boolean twoFinger, reanchor;
-    private float scrollY;
+    private float twoX, twoY;
 
     // Material 3 dark color roles. On Android 12+ they follow the wallpaper (dynamic color).
     private int cPrimary = 0xFFD0BCFF, cOnPrimaryContainer = 0xFFEADDFF, cPrimaryContainer = 0xFF4F378B;
@@ -171,7 +171,7 @@ public class MainActivity extends Activity {
 
     private void renderPad() {
         boolean on = host != null;
-        padHint.setText(on ? "한 손가락: 움직이기 · 탭: 클릭\n두 손가락 위아래: 스크롤" : "위에서 연결할 기기를 고르세요");
+        padHint.setText(on ? "한 손가락: 움직이기 · 탭: 클릭\n두 손가락 위아래: 스크롤\n두 손가락 ← 뒤로 · → 앞으로" : "위에서 연결할 기기를 고르세요");
         padHint.setAlpha(on ? 0.7f : 0.5f);
     }
 
@@ -196,7 +196,7 @@ public class MainActivity extends Activity {
             @Override public void onServiceConnected(int profile, BluetoothProfile proxy) {
                 hid = (BluetoothHidDevice) proxy;
                 BluetoothHidDeviceAppSdpSettings sdp = new BluetoothHidDeviceAppSdpSettings(
-                        "트랙패드", "Phone trackpad", "local", BluetoothHidDevice.SUBCLASS1_MOUSE, Hid.DESCRIPTOR);
+                        "트랙패드", "Phone trackpad", "local", BluetoothHidDevice.SUBCLASS1_COMBO, Hid.DESCRIPTOR);
                 try {
                     if (!hid.registerApp(sdp, null, null, getMainExecutor(), callback))
                         say("등록 실패: 이 폰이 블루투스 마우스 기능을 막아둔 것 같습니다.");
@@ -216,7 +216,7 @@ public class MainActivity extends Activity {
         @Override public void onSetProtocol(BluetoothDevice d, byte protocol) { Log.i("Trackpad", "host set protocol " + protocol); }
         @Override public void onGetReport(BluetoothDevice d, byte type, byte id, int size) {
             Log.i("Trackpad", "host get report type " + type + " id " + id);
-            try { hid.replyReport(d, type, id, new byte[4]); } catch (SecurityException ignored) { }
+            try { hid.replyReport(d, type, id, new byte[Hid.reportSize(id)]); } catch (SecurityException ignored) { }
         }
         @Override public void onSetReport(BluetoothDevice d, byte type, byte id, byte[] data) {
             Log.i("Trackpad", "host set report type " + type + " id " + id);
@@ -332,19 +332,21 @@ public class MainActivity extends Activity {
                 return true;
             case MotionEvent.ACTION_POINTER_DOWN:
                 twoFinger = true;  // stays set until all fingers lift: no tap, no cursor jump
-                scrollY = avgY(e);
-                wheel.reset();
+                twoX = avg(e, true); twoY = avg(e, false);
+                two.reset();
                 return true;
             case MotionEvent.ACTION_POINTER_UP:
                 reanchor = true;  // remaining finger re-anchors on its next move
                 return true;
             case MotionEvent.ACTION_MOVE: {
                 if (e.getPointerCount() >= 2) {
-                    float y = avgY(e);
-                    int n = wheel.add((y - scrollY) / density);
-                    scrollY = y;
+                    float x = avg(e, true), y = avg(e, false);
+                    int g = two.feed((x - twoX) / density, (y - twoY) / density);
+                    twoX = x; twoY = y;
+                    int n = two.scroll;
                     // fingers down -> content down: Android wheel +, macOS (natural) wheel -
                     if (n != 0) send(0, 0, 0, hostFlipsWheel() ? -n : n);
+                    if (g != TwoFinger.NONE) navigate(g == TwoFinger.BACK);
                     return true;
                 }
                 if (twoFinger) {  // back to one finger after scrolling: just track it, don't jump
@@ -372,10 +374,25 @@ public class MainActivity extends Activity {
         return false;
     }
 
-    private static float avgY(MotionEvent e) {
-        float y = 0;
-        for (int i = 0; i < e.getPointerCount(); i++) y += e.getY(i);
-        return y / e.getPointerCount();
+    private static float avg(MotionEvent e, boolean x) {
+        float v = 0;
+        for (int i = 0; i < e.getPointerCount(); i++) v += x ? e.getX(i) : e.getY(i);
+        return v / e.getPointerCount();
+    }
+
+    /** Back/forward: Cmd+[ / Cmd+] on a Mac (browsers, Finder); consumer Back/Forward keys on Android. */
+    private void navigate(boolean back) {
+        if (hid == null || host == null) return;
+        Log.i("Trackpad", back ? "swipe back" : "swipe forward");
+        try {
+            if (hostFlipsWheel()) {  // computer host
+                hid.sendReport(host, Hid.KEYBOARD_ID, Hid.key(Hid.MOD_GUI, back ? Hid.KEY_LEFT_BRACKET : Hid.KEY_RIGHT_BRACKET));
+                hid.sendReport(host, Hid.KEYBOARD_ID, Hid.key(0, 0));
+            } else {
+                hid.sendReport(host, Hid.CONSUMER_ID, Hid.consumer(back ? Hid.AC_BACK : Hid.AC_FORWARD));
+                hid.sendReport(host, Hid.CONSUMER_ID, Hid.consumer(0));
+            }
+        } catch (SecurityException e) { say("권한 오류: " + e.getMessage()); }
     }
 
     @Override protected void onDestroy() {
