@@ -1,10 +1,10 @@
 from gesture_mouse.frame import FrameLogic
-from gesture_mouse.safety import Controller, LogMouse
-from tests.fixtures import fist, open_palm, pinch, point_index, scroll_pose, shift
+from gesture_mouse.safety import Controller, LogActions, LogMouse
+from tests.fixtures import call_pose, fist, ok_sign, open_palm, pinch, point_index, scroll_pose, shift
 
 
 def setup(enabled=True):
-    m = LogMouse(); c = Controller(m); f = FrameLogic(c, (1000, 800))
+    m = LogMouse(); c = Controller(m); f = FrameLogic(c, (1000, 800), LogActions())
     if enabled:
         f.toggle(0.0)
     return m, c, f
@@ -21,15 +21,22 @@ def test_preview_by_default_sends_nothing():
     assert m.calls == [] and not c.enabled
 
 
-def test_palm_hold_enables_and_flicker_does_not_retoggle():
+def test_fist_hold_toggles_and_flicker_does_not_retoggle():
     m, c, f = setup(enabled=False)
     for i in range(21):
-        f.step(open_palm(), i / 10)
+        f.step(fist(), i / 10)
     assert c.enabled
-    f.step(fist(), 2.15)                       # one noisy frame
+    f.step(point_index(), 2.15)                # one noisy frame
     for i in range(30):
-        f.step(open_palm(), 2.2 + i / 10)
+        f.step(fist(), 2.2 + i / 10)
     assert c.enabled
+
+
+def test_open_palm_no_longer_toggles():
+    m, c, f = setup(enabled=False)
+    for i in range(40):
+        f.step(open_palm(), i / 10)
+    assert not c.enabled
 
 
 def test_hand_lost_turns_off_and_stays_off():
@@ -86,3 +93,48 @@ def test_scroll_up():
     f.step(scroll_pose(), 0.0)
     f.step(shift(scroll_pose(), 0.0, -0.05), 0.1)
     assert [x for x in m.calls if x[0] == "scroll"] and m.calls[-1][1] > 0
+
+
+def acts(f):
+    return f.actions.calls
+
+
+def test_still_palm_opens_youtube_once():
+    m, c, f = setup()
+    for i in range(40):
+        f.step(open_palm(), i / 10)
+    assert acts(f) == ["open_youtube"]
+    assert not [x for x in m.calls if x[0] == "move"]   # palm never drives the cursor
+
+
+def test_palm_swipe_left_next_right_prev_without_opening_youtube():
+    m, c, f = setup()
+    for i in range(8):
+        f.step(shift(open_palm(), -0.04 * i, 0), i / 30)
+    for i in range(30):                                   # palm stays up after the swipe
+        f.step(shift(open_palm(), -0.28, 0), (8 + i) / 30 + 0.5)
+    for i in range(8):
+        f.step(shift(open_palm(), -0.28 + 0.04 * i, 0), 3 + i / 30)
+    assert acts(f) == ["next_video", "prev_video"]
+
+
+def test_call_pose_starts_voice_search_once():
+    m, c, f = setup()
+    for i in range(20):
+        f.step(call_pose(), i / 10)
+    assert acts(f) == ["voice_search"]
+
+
+def test_no_actions_while_control_off():
+    m, c, f = setup(enabled=False)
+    for i in range(30):
+        f.step(open_palm(), i / 10)
+    for i in range(20):
+        f.step(call_pose(), 3 + i / 10)
+    assert acts(f) == [] and m.calls == []
+
+
+def test_ok_sign_clicks():
+    m, c, f = setup()
+    f.step(pinch(0.5), 0.0); f.step(ok_sign(), 0.1)
+    assert buttons(m) == [("button", True)]

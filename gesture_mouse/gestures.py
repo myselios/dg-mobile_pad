@@ -3,6 +3,7 @@
 Landmarks: list of 21 (x, y) normalized points in MediaPipe order.
 """
 import math
+from collections import deque
 
 TIP = {"index": 8, "middle": 12, "ring": 16, "pinky": 20}
 PIP = {"index": 6, "middle": 10, "ring": 14, "pinky": 18}
@@ -15,7 +16,19 @@ def finger_extended(lm, finger):
 
 
 def is_open_palm(lm):
-    return all(finger_extended(lm, f) for f in ("thumb", "index", "middle", "ring", "pinky"))
+    # Thumb and index must be apart, otherwise an OK-sign pinch would count as a palm.
+    return (all(finger_extended(lm, f) for f in ("thumb", "index", "middle", "ring", "pinky"))
+            and pinch_ratio(lm) > 0.5)
+
+
+def is_fist(lm):
+    return not any(finger_extended(lm, f) for f in ("index", "middle", "ring", "pinky"))
+
+
+def is_call_pose(lm):
+    """Thumb and pinky out, the rest folded (phone sign)."""
+    return (finger_extended(lm, "thumb") and finger_extended(lm, "pinky")
+            and not any(finger_extended(lm, f) for f in ("index", "middle", "ring")))
 
 
 def is_scroll_pose(lm):
@@ -128,3 +141,28 @@ def scroll_delta(prev_y, y, gain=2000.0, deadzone=0.005):
     """Pixels to scroll; hand moving up (y decreasing) scrolls up (positive)."""
     dy = prev_y - y
     return 0 if abs(dy) < deadzone else round(dy * gain)
+
+
+class SwipeDetector:
+    """Horizontal swipe: x moves more than `distance` within `window_s`. Returns "left"/"right" once, then cools down."""
+
+    def __init__(self, distance=0.2, window_s=0.3, cooldown_s=0.8):
+        self.distance, self.window_s, self.cooldown_s = distance, window_s, cooldown_s
+        self._hist = deque()
+        self._until = float("-inf")
+
+    def reset(self):
+        self._hist.clear()
+
+    def update(self, x, now):
+        if now < self._until:
+            return None
+        self._hist.append((now, x))
+        while now - self._hist[0][0] > self.window_s:
+            self._hist.popleft()
+        dx = x - self._hist[0][1]
+        if abs(dx) < self.distance:
+            return None
+        self._hist.clear()
+        self._until = now + self.cooldown_s
+        return "left" if dx < 0 else "right"

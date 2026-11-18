@@ -241,3 +241,9 @@ def test_scroll_deadzone():   assert scroll_delta(0.5, 0.503) == 0
 - 설정 파일·GUI 설정 화면 (튜닝값은 코드 상수)
 - 우클릭·더블클릭 전용 제스처, 여러 모니터, 두 손 인식
 - SwiftUI 네이티브 앱 전환, 자동 시작(로그인 항목)
+
+---
+
+## 추가 (2026-11-18): 유튜브 제스처
+
+사용자 요청으로 한 모드에 섞음. 제스처 재배치: 주먹 2초 = 제어 켜기/끄기(손바닥에서 이동), 정지한 손바닥 1초 = Safari에서 유튜브 열기, 손바닥 좌/우 스와이프 = 다음/이전 영상, 🤙 0.5초 = 음성검색(마이크 버튼, 없으면 검색창 포커스). 모든 동작은 제어 ON일 때만. 구현: `gestures.py`(is_fist, is_call_pose, SwipeDetector, OK사인 오인 방지), `frame.py`(통합), `actions.py`(Safari JS via AppleScript), `safety.LogActions`(dry-run).

@@ -36,3 +36,13 @@ def scale(lm, s):
 
 def shift(lm, dx, dy):
     return [(x + dx, y + dy) for x, y in lm]
+
+
+def call_pose():   return make_hand({"thumb", "pinky"})
+
+
+def ok_sign():
+    """Thumb and index touching, other three fingers up (a common way to pinch)."""
+    lm = make_hand({"thumb", "index", "middle", "ring", "pinky"})
+    lm[4] = (lm[8][0] - 0.01, lm[8][1])
+    return lm

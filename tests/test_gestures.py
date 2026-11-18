@@ -124,3 +124,37 @@ def test_hold_one_frame_flicker_does_not_rearm():
     assert h.update(True, 0) is False and h.update(True, 2.0) is True
     h.update(False, 2.1)                     # one noisy frame
     assert not any(h.update(True, 2.2 + 0.1 * i) for i in range(40))
+
+
+from gesture_mouse.gestures import SwipeDetector, is_call_pose, is_fist  # noqa: E402
+from tests.fixtures import call_pose, ok_sign  # noqa: E402
+
+
+def test_fist():
+    assert is_fist(fist()) and not is_fist(point_index()) and not is_fist(open_palm())
+
+
+def test_call_pose():
+    assert is_call_pose(call_pose()) and not is_call_pose(open_palm()) and not is_call_pose(fist())
+
+
+def test_ok_sign_is_pinch_not_palm():
+    assert not is_open_palm(ok_sign()) and pinch_ratio(ok_sign()) < 0.25
+
+
+def test_swipe_left_and_right():
+    s = SwipeDetector()
+    assert "left" in [s.update(0.7 - 0.05 * i, i / 30) for i in range(6)]
+    s = SwipeDetector()
+    assert "right" in [s.update(0.3 + 0.05 * i, i / 30) for i in range(6)]
+
+
+def test_swipe_slow_move_is_not_swipe():
+    s = SwipeDetector()
+    assert not any(s.update(0.3 + 0.004 * i, i / 30) for i in range(60))
+
+
+def test_swipe_fires_once_then_cooldown():
+    s = SwipeDetector(cooldown_s=0.8)
+    events = [s.update(0.8 - 0.05 * i, i / 30) for i in range(14)]
+    assert events.count("left") == 1

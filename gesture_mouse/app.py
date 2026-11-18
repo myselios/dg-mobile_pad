@@ -10,7 +10,7 @@ import cv2
 import mediapipe as mp
 
 from gesture_mouse.frame import FrameLogic
-from gesture_mouse.safety import Controller, LogMouse, cleanup
+from gesture_mouse.safety import Controller, LogActions, LogMouse, cleanup
 
 MODEL = Path(__file__).resolve().parent.parent / "models" / "hand_landmarker.task"
 CONNECTIONS = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (5, 9), (9, 10), (10, 11),
@@ -52,12 +52,12 @@ def watchdog(controller, last_frame, stop):
             print("[stop] camera stalled: control off", flush=True)
 
 
-def run(cap, controller, mouse, screen):
+def run(cap, controller, mouse, screen, actions):
     vision = mp.tasks.vision
     options = vision.HandLandmarkerOptions(
         base_options=mp.tasks.BaseOptions(model_asset_path=str(MODEL)),
         running_mode=vision.RunningMode.VIDEO, num_hands=1)
-    logic = FrameLogic(controller, screen)
+    logic = FrameLogic(controller, screen, actions)
     note = ""
     last_frame, stop = [time.monotonic()], threading.Event()
     threading.Thread(target=watchdog, args=(controller, last_frame, stop), daemon=True).start()
@@ -88,10 +88,12 @@ def run(cap, controller, mouse, screen):
 
                 fps = 0.9 * fps + 0.1 / max(now - prev, 1e-6)
                 prev = now
-                lines = ["CONTROL ON" if controller.enabled else "MODE: PREVIEW (t / palm 2s)",
+                lines = ["CONTROL ON" if controller.enabled else "MODE: PREVIEW (t / fist 2s)",
                          f"FPS {fps:.0f}  pinch {logic.ratio:.2f}  {note}"]
                 if isinstance(mouse, LogMouse):
                     lines += [f"dry: {c}" for c in mouse.calls[-3:]]
+                if isinstance(actions, LogActions) and actions.calls:
+                    lines.append(f"dry action: {actions.calls[-1]}")
                 draw(frame, lm, lines)
                 cv2.imshow("gesture-mouse", frame)
     finally:
@@ -113,17 +115,18 @@ def main(argv=None):
         return 1
 
     if args.dry_run:
-        mouse, screen = LogMouse(), (1920, 1080)
+        mouse, screen, actions = LogMouse(), (1920, 1080), LogActions()
     else:
+        from gesture_mouse.actions import SafariYouTube
         from gesture_mouse.mouse import QuartzMouse, can_post_events, screen_size
-        mouse, screen = QuartzMouse(), screen_size()
+        mouse, screen, actions = QuartzMouse(), screen_size(), SafariYouTube()
         if can_post_events() is False:
             print("[주의] 손쉬운 사용 권한이 없어 커서 이벤트가 무시됩니다. 위 권한 안내를 확인하세요.", flush=True)
     controller = Controller(mouse)
     signal.signal(signal.SIGINT, signal.default_int_handler)  # even if the parent shell ignored SIGINT
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # route SIGTERM through the same finally
     try:
-        run(cap, controller, mouse, screen)
+        run(cap, controller, mouse, screen, actions)
     except KeyboardInterrupt:
         print("\n[stop] Ctrl-C", flush=True)
     finally:

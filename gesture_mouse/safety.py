@@ -19,6 +19,18 @@ class LogMouse:
     def scroll(self, dy): self.calls.append(("scroll", dy))
 
 
+class LogActions:
+    """Records app actions instead of running them (dry-run and tests)."""
+
+    def __init__(self):
+        self.calls = []
+
+    def open_youtube(self): self.calls.append("open_youtube")
+    def next_video(self): self.calls.append("next_video")
+    def prev_video(self): self.calls.append("prev_video")
+    def voice_search(self): self.calls.append("voice_search")
+
+
 class Controller:
     def __init__(self, mouse: Mouse):
         self.mouse = mouse
