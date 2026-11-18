@@ -33,3 +33,42 @@ def test_hold_interrupted_restarts():
     h = HoldTimer(2.0)
     h.update(True, 0); h.update(False, 1.5)
     assert h.update(True, 1.6) is False and h.update(True, 3.0) is False and h.update(True, 3.6) is True
+
+
+from gesture_mouse.gestures import OneEuroFilter, map_to_screen  # noqa: E402
+
+
+def test_map_center():
+    assert map_to_screen(0.5, 0.5, 1000, 800) == (500, 400)
+
+
+def test_map_clamps_to_screen():
+    assert map_to_screen(0.0, 1.0, 1000, 800) == (0, 799)
+    assert map_to_screen(0.2, 0.8, 1000, 800) == (0, 799)
+    assert map_to_screen(0.95, 0.05, 1000, 800) == (999, 0)
+
+
+def test_one_euro_constant():
+    f = OneEuroFilter()
+    assert all(abs(f(0.3, i / 30) - 0.3) < 1e-9 for i in range(30))
+
+
+def test_one_euro_reduces_jitter():
+    f = OneEuroFilter()
+    raw = [0.5 + (0.01 if i % 2 else -0.01) for i in range(60)]
+    out = [f(x, i / 30) for i, x in enumerate(raw)][10:]
+    var = lambda xs: sum((x - sum(xs) / len(xs)) ** 2 for x in xs) / len(xs)
+    assert var(out) < var(raw[10:]) / 4
+
+
+def test_one_euro_follows_large_move():
+    f = OneEuroFilter()
+    for i in range(10):
+        f(0.2, i / 30)
+    out = [f(0.8, (10 + i) / 30) for i in range(15)]
+    assert out[-1] > 0.75
+
+
+def test_one_euro_reset():
+    f = OneEuroFilter(); f(0.1, 0); f.reset()
+    assert f(0.9, 1) == 0.9

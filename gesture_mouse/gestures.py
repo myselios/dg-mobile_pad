@@ -46,3 +46,39 @@ class HoldTimer:
             self._fired = True
             return True
         return False
+
+
+def map_to_screen(x, y, width, height, margin=0.2):
+    """Map the central [margin, 1-margin] camera box to the full screen, clamped."""
+    def axis(v, size):
+        t = min(max((v - margin) / (1 - 2 * margin), 0.0), 1.0)
+        return round(t * (size - 1))
+    return axis(x, width), axis(y, height)
+
+
+class OneEuroFilter:
+    """One Euro filter (Casiez et al., CHI 2012): smooth when still, responsive when moving fast."""
+
+    def __init__(self, min_cutoff=1.0, beta=0.01, d_cutoff=1.0):
+        self.min_cutoff, self.beta, self.d_cutoff = min_cutoff, beta, d_cutoff
+        self.reset()
+
+    def reset(self):
+        self._x = self._dx = self._t = None
+
+    @staticmethod
+    def _alpha(cutoff, dt):
+        tau = 1.0 / (2 * math.pi * cutoff)
+        return 1.0 / (1.0 + tau / dt)
+
+    def __call__(self, x, t):
+        if self._t is None or t <= self._t:
+            self._x, self._dx, self._t = x, 0.0, t
+            return x
+        dt = t - self._t
+        a_d = self._alpha(self.d_cutoff, dt)
+        self._dx = a_d * (x - self._x) / dt + (1 - a_d) * self._dx
+        a = self._alpha(self.min_cutoff + self.beta * abs(self._dx), dt)
+        self._x = a * x + (1 - a) * self._x
+        self._t = t
+        return self._x

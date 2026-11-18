@@ -8,7 +8,7 @@ from pathlib import Path
 import cv2
 import mediapipe as mp
 
-from gesture_mouse.gestures import HoldTimer, is_open_palm
+from gesture_mouse.gestures import HoldTimer, OneEuroFilter, is_open_palm, map_to_screen
 from gesture_mouse.safety import Controller, LogMouse, cleanup
 
 MODEL = Path(__file__).resolve().parent.parent / "models" / "hand_landmarker.task"
@@ -40,12 +40,13 @@ def draw(frame, lm, lines):
         cv2.putText(frame, text, (10, 30 + 28 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
 
-def run(cap, controller, mouse):
+def run(cap, controller, mouse, screen):
     vision = mp.tasks.vision
     options = vision.HandLandmarkerOptions(
         base_options=mp.tasks.BaseOptions(model_asset_path=str(MODEL)),
         running_mode=vision.RunningMode.VIDEO, num_hands=1)
     palm = HoldTimer(2.0)
+    fx, fy = OneEuroFilter(), OneEuroFilter()
     note = ""
     t0, last_ts, fps, prev = time.monotonic(), -1, 0.0, time.monotonic()
     with vision.HandLandmarker.create_from_options(options) as landmarker:
@@ -63,6 +64,7 @@ def run(cap, controller, mouse):
             lm = to_landmarks(landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), ts))
 
             if lm is None:
+                fx.reset(); fy.reset()
                 if controller.enabled:
                     controller.hand_lost()
                     note = "OFF: hand lost"
@@ -70,6 +72,8 @@ def run(cap, controller, mouse):
             elif palm.update(is_open_palm(lm), now):
                 controller.toggle()
                 note = "toggled by palm"
+            if lm is not None:
+                controller.move(*map_to_screen(fx(lm[8][0], now), fy(lm[8][1], now), *screen))
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
@@ -89,6 +93,7 @@ def run(cap, controller, mouse):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
+    ap.add_argument("--dry-run", action="store_true", help="never post real mouse events")
     ap.add_argument("--camera", default="0", help="camera index, or a video file path for testing")
     args = ap.parse_args(argv)
     print(PERMISSION_HELP)
@@ -100,12 +105,18 @@ def main(argv=None):
         cap.release()
         return 1
 
-    mouse = LogMouse()
+    if args.dry_run:
+        mouse, screen = LogMouse(), (1920, 1080)
+    else:
+        from gesture_mouse.mouse import QuartzMouse, can_post_events, screen_size
+        mouse, screen = QuartzMouse(), screen_size()
+        if can_post_events() is False:
+            print("[주의] 손쉬운 사용 권한이 없어 커서 이벤트가 무시됩니다. 위 권한 안내를 확인하세요.", flush=True)
     controller = Controller(mouse)
     signal.signal(signal.SIGINT, signal.default_int_handler)  # even if the parent shell ignored SIGINT
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # route SIGTERM through the same finally
     try:
-        run(cap, controller, mouse)
+        run(cap, controller, mouse, screen)
     except KeyboardInterrupt:
         print("\n[stop] Ctrl-C", flush=True)
     finally:
