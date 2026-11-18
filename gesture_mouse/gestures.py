@@ -29,17 +29,26 @@ def pinch_ratio(lm):
 
 
 class HoldTimer:
-    """Fires once when `active` has been held for hold_s; re-arms only after active goes False."""
+    """Fires once when `active` has been held for hold_s.
 
-    def __init__(self, hold_s=2.0):
-        self.hold_s = hold_s
-        self._since = None
+    Re-arms only after `active` has been False for rearm_s, so a single noisy frame
+    while the palm stays open does not cause a second toggle.
+    """
+
+    def __init__(self, hold_s=2.0, rearm_s=0.3):
+        self.hold_s, self.rearm_s = hold_s, rearm_s
+        self._since = self._off_since = None
         self._fired = False
 
     def update(self, active, now):
         if not active:
-            self._since, self._fired = None, False
+            self._since = None
+            if self._off_since is None:
+                self._off_since = now
+            if now - self._off_since >= self.rearm_s:
+                self._fired = False
             return False
+        self._off_since = None
         if self._since is None:
             self._since = now
         if not self._fired and now - self._since >= self.hold_s:
@@ -85,17 +94,26 @@ class OneEuroFilter:
 
 
 class PinchDetector:
-    """Pinch with hysteresis (press < `press`, release > `release`) and a cooldown after each release."""
+    """Pinch with hysteresis (press < `press`, release > `release`) and a cooldown after each release.
+
+    After reset() the fingers must open (ratio > release) before the next press, so a pinch
+    already held during a toggle, scroll or hand loss never turns into a click.
+    """
 
     def __init__(self, press=0.25, release=0.40, cooldown_s=0.3):
         self.press, self.release, self.cooldown_s = press, release, cooldown_s
         self.pressed = False
+        self._armed = True
         self._last_up = float("-inf")
 
     def reset(self):
         self.pressed = False
+        self._armed = False
 
     def update(self, ratio, now):
+        if not self._armed:
+            self._armed = ratio > self.release
+            return None
         if self.pressed and ratio > self.release:
             self.pressed = False
             self._last_up = now

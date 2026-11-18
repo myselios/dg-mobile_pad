@@ -25,7 +25,7 @@ def test_pinch_ratio_value_and_scale_invariant():
 def test_hold_fires_once():
     h = HoldTimer(2.0)
     assert [h.update(True, t) for t in (0, 1.9, 2.0, 3, 10)] == [False, False, True, False, False]
-    h.update(False, 11)
+    h.update(False, 11); h.update(False, 11.5)
     assert h.update(True, 12) is False and h.update(True, 14) is True
 
 
@@ -98,6 +98,12 @@ def test_pinch_reset_clears_pressed():
     assert not p.pressed and p.update(0.5, 0.1) is None
 
 
+def test_pinch_after_reset_needs_open_first():
+    p = PinchDetector(); p.reset()
+    assert p.update(0.1, 0) is None and p.update(0.1, 1) is None   # still pinched since reset: no click
+    assert p.update(0.5, 2) is None and p.update(0.1, 3) == "down"  # open, then close: click
+
+
 from gesture_mouse.gestures import scroll_delta  # noqa: E402
 
 
@@ -111,3 +117,10 @@ def test_scroll_deadzone():
 
 def test_scroll_gain():
     assert scroll_delta(0.5, 0.49, gain=2000.0) == 20
+
+
+def test_hold_one_frame_flicker_does_not_rearm():
+    h = HoldTimer(2.0, rearm_s=0.3)
+    assert h.update(True, 0) is False and h.update(True, 2.0) is True
+    h.update(False, 2.1)                     # one noisy frame
+    assert not any(h.update(True, 2.2 + 0.1 * i) for i in range(40))

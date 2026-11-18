@@ -2,14 +2,14 @@
 import argparse
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
 import cv2
 import mediapipe as mp
 
-from gesture_mouse.gestures import (HoldTimer, OneEuroFilter, PinchDetector, is_open_palm, is_scroll_pose,
-                                    map_to_screen, pinch_ratio, scroll_delta)
+from gesture_mouse.frame import FrameLogic
 from gesture_mouse.safety import Controller, LogMouse, cleanup
 
 MODEL = Path(__file__).resolve().parent.parent / "models" / "hand_landmarker.task"
@@ -41,77 +41,61 @@ def draw(frame, lm, lines):
         cv2.putText(frame, text, (10, 30 + 28 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
 
+STALL_S = 1.0  # no new frame for this long while control is ON -> OFF
+
+
+def watchdog(controller, last_frame, stop):
+    """Turns control off if the camera stops delivering frames (cap.read may block)."""
+    while not stop.wait(0.25):
+        if controller.enabled and time.monotonic() - last_frame[0] > STALL_S:
+            controller.hand_lost()
+            print("[stop] camera stalled: control off", flush=True)
+
+
 def run(cap, controller, mouse, screen):
     vision = mp.tasks.vision
     options = vision.HandLandmarkerOptions(
         base_options=mp.tasks.BaseOptions(model_asset_path=str(MODEL)),
         running_mode=vision.RunningMode.VIDEO, num_hands=1)
-    palm = HoldTimer(2.0)
-    fx, fy = OneEuroFilter(), OneEuroFilter()
-    pinch = PinchDetector()
-    scroll_y = None
-    ratio = 0.0
+    logic = FrameLogic(controller, screen)
     note = ""
+    last_frame, stop = [time.monotonic()], threading.Event()
+    threading.Thread(target=watchdog, args=(controller, last_frame, stop), daemon=True).start()
     t0, last_ts, fps, prev = time.monotonic(), -1, 0.0, time.monotonic()
-    with vision.HandLandmarker.create_from_options(options) as landmarker:
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                controller.hand_lost()
-                print("[stop] camera frame lost", flush=True)
-                return
-            frame = cv2.flip(frame, 1)
-            now = time.monotonic()
-            ts = max(int((now - t0) * 1000), last_ts + 1)  # VIDEO mode needs strictly increasing ms
-            last_ts = ts
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            lm = to_landmarks(landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), ts))
-
-            if lm is None:
-                fx.reset(); fy.reset(); pinch.reset()
-                scroll_y = None
-                if controller.enabled:
+    try:
+        with vision.HandLandmarker.create_from_options(options) as landmarker:
+            while True:
+                ok, frame = cap.read()
+                if not ok:
                     controller.hand_lost()
-                    note = "OFF: hand lost"
-                palm.update(False, now)
-            elif palm.update(is_open_palm(lm), now):
-                controller.toggle()
-                pinch.reset()
-                note = "toggled by palm"
-            if lm is not None and is_scroll_pose(lm):
-                # Scroll mode: no cursor move, no pinch; release any held button first.
-                controller.release(); pinch.reset(); fx.reset(); fy.reset()
-                y = (lm[8][1] + lm[12][1]) / 2
-                if scroll_y is None:
-                    scroll_y = y
-                elif dy := scroll_delta(scroll_y, y):
-                    controller.scroll(dy)
-                    scroll_y = y  # keep the anchor until we scroll, so slow moves still add up
-            elif lm is not None:
-                scroll_y = None
-                controller.move(*map_to_screen(fx(lm[8][0], now), fy(lm[8][1], now), *screen))
-                ratio = pinch_ratio(lm)
-                event = pinch.update(ratio, now)
-                if event == "down":
-                    controller.press()
-                elif event == "up":
-                    controller.release()
+                    print("[stop] camera frame lost", flush=True)
+                    return
+                now = time.monotonic()
+                last_frame[0] = now
+                frame = cv2.flip(frame, 1)
+                ts = max(int((now - t0) * 1000), last_ts + 1)  # VIDEO mode needs strictly increasing ms
+                last_ts = ts
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                lm = to_landmarks(landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), ts))
+                note = logic.step(lm, now) or note
 
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord("q"):
-                return
-            if key == ord("t"):
-                controller.toggle()
-                pinch.reset()
-                note = "toggled by key"
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord("q"):
+                    return
+                if key == ord("t"):
+                    logic.toggle(now)
+                    note = "toggled by key"
 
-            fps = 0.9 * fps + 0.1 / max(now - prev, 1e-6)
-            prev = now
-            lines = ["CONTROL ON" if controller.enabled else "MODE: PREVIEW (t / palm 2s)", f"FPS {fps:.0f}  pinch {ratio:.2f}  {note}"]
-            if isinstance(mouse, LogMouse):
-                lines += [f"dry: {c}" for c in mouse.calls[-3:]]
-            draw(frame, lm, lines)
-            cv2.imshow("gesture-mouse", frame)
+                fps = 0.9 * fps + 0.1 / max(now - prev, 1e-6)
+                prev = now
+                lines = ["CONTROL ON" if controller.enabled else "MODE: PREVIEW (t / palm 2s)",
+                         f"FPS {fps:.0f}  pinch {logic.ratio:.2f}  {note}"]
+                if isinstance(mouse, LogMouse):
+                    lines += [f"dry: {c}" for c in mouse.calls[-3:]]
+                draw(frame, lm, lines)
+                cv2.imshow("gesture-mouse", frame)
+    finally:
+        stop.set()
 
 
 def main(argv=None):

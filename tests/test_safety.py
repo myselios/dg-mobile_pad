@@ -60,3 +60,39 @@ def test_double_press_sends_one_down():
 def test_moves_and_scrolls_when_enabled():
     m, c = on(); c.move(3, 4); c.scroll(-2)
     assert m.calls == [("move", 3, 4), ("scroll", -2)]
+
+
+def test_press_marks_down_even_if_event_interrupted():
+    class Boom(LogMouse):
+        def button(self, down):
+            if down: raise KeyboardInterrupt
+            super().button(down)
+    m = Boom(); c = Controller(m); c.toggle()
+    try:
+        c.press()
+    except KeyboardInterrupt:
+        pass
+    c.shutdown()
+    assert m.calls == [("button", False)]
+
+
+def test_shutdown_always_sends_up():
+    m, c = on(); c.shutdown()
+    assert m.calls == [("button", False)] and not c.enabled
+
+
+def test_failed_release_keeps_flag_for_retry():
+    class Flaky(LogMouse):
+        fail = True
+        def button(self, down):
+            if not down and self.fail:
+                self.fail = False; raise RuntimeError
+            super().button(down)
+    m = Flaky(); c = Controller(m); c.toggle(); c.press()
+    try:
+        c.hand_lost()
+    except RuntimeError:
+        pass
+    assert c.button_down and not c.enabled
+    c.shutdown()
+    assert m.calls[-1] == ("button", False) and not c.button_down

@@ -37,14 +37,14 @@ class Controller:
 
     def press(self):
         if self.enabled and not self.button_down:
+            self.button_down = True  # mark first: an interrupt right after the event must still release
             self.mouse.button(True)
-            self.button_down = True
 
     def release(self):
         # Not gated on enabled: releasing must always be possible.
         if self.button_down:
-            self.button_down = False
             self.mouse.button(False)
+            self.button_down = False  # cleared only after success, so a failed release is retried
 
     def scroll(self, dy):
         if self.enabled and dy:
@@ -54,7 +54,12 @@ class Controller:
         self._off()
 
     def shutdown(self):
-        self._off()
+        """Always sends one button-up (harmless if already up), then disables."""
+        try:
+            self.mouse.button(False)
+            self.button_down = False
+        finally:
+            self.enabled = False
 
     def _off(self):
         try:

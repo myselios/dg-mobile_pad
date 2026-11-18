@@ -32,3 +32,7 @@ def pinch(ratio):
 def scale(lm, s):
     wx, wy = lm[0]
     return [(wx + (x - wx) * s, wy + (y - wy) * s) for x, y in lm]
+
+
+def shift(lm, dx, dy):
+    return [(x + dx, y + dy) for x, y in lm]
