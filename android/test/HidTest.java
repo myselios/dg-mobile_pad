@@ -23,6 +23,17 @@ public class HidTest {
         List<byte[]> held = Hid.move(1, 130, 0, 0);
         for (byte[] b : held) check(b[0] == 1, "drag keeps the button down across split reports");
 
+        Hid.Wheel w = new Hid.Wheel(10);
+        check(w.add(4) == 0, "below one step: nothing yet");
+        check(w.add(7) == 1, "remainder carries over: 4+7 = one step");
+        check(w.add(-12) == -1, "reverse direction steps negative");
+        check(w.add(31) == 3, "big move gives several steps (-1 left over + 31 = 30)");
+        w.reset();
+        check(w.add(9) == 0, "reset drops the remainder");
+
+        List<byte[]> scroll = Hid.move(0, 0, 0, -3);
+        check(scroll.size() == 1 && scroll.get(0)[3] == -3, "wheel goes in byte 3");
+
         System.out.println("HidTest OK");
     }
 }

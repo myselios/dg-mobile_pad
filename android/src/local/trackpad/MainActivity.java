@@ -32,6 +32,7 @@ public class MainActivity extends Activity {
     private static final float SPEED = 2.0f;   // mouse counts per dp of finger travel (host adds its own acceleration)
     private static final long TAP_MS = 220;
     private static final float TAP_DP = 10;
+    private static final float SCROLL_STEP_DP = 8;  // finger travel per wheel step
 
     private BluetoothAdapter bt;
     private BluetoothHidDevice hid;
@@ -39,6 +40,9 @@ public class MainActivity extends Activity {
     private LinearLayout hosts;
     private float density, lastX, lastY, fracX, fracY, moved;
     private long downT;
+    private final Hid.Wheel wheel = new Hid.Wheel(SCROLL_STEP_DP);
+    private boolean twoFinger, reanchor;
+    private float scrollY;
 
     // Material 3 dark color roles. On Android 12+ they follow the wallpaper (dynamic color).
     private int cPrimary = 0xFFD0BCFF, cOnPrimaryContainer = 0xFFEADDFF, cPrimaryContainer = 0xFF4F378B;
@@ -167,7 +171,7 @@ public class MainActivity extends Activity {
 
     private void renderPad() {
         boolean on = host != null;
-        padHint.setText(on ? "한 손가락으로 움직이기\n탭하면 클릭" : "위에서 연결할 기기를 고르세요");
+        padHint.setText(on ? "한 손가락: 움직이기 · 탭: 클릭\n두 손가락 위아래: 스크롤" : "위에서 연결할 기기를 고르세요");
         padHint.setAlpha(on ? 0.7f : 0.5f);
     }
 
@@ -301,10 +305,18 @@ public class MainActivity extends Activity {
         return card;
     }
 
-    private void send(int buttons, int dx, int dy) {
+    private void send(int buttons, int dx, int dy) { send(buttons, dx, dy, 0); }
+
+    /** macOS defaults to "natural" scrolling, which flips the wheel; Android does not. Match finger direction on both. */
+    private boolean hostFlipsWheel() {
+        return host != null && host.getBluetoothClass() != null
+                && host.getBluetoothClass().getMajorDeviceClass() == BluetoothClass.Device.Major.COMPUTER;
+    }
+
+    private void send(int buttons, int dx, int dy, int wheelSteps) {
         if (hid == null || host == null) return;
         try {
-            for (byte[] r : Hid.move(buttons, dx, dy, 0)) {
+            for (byte[] r : Hid.move(buttons, dx, dy, wheelSteps)) {
                 if (hid.sendReport(host, Hid.MOUSE_ID, r)) sent++; else failed++;
             }
             if ((sent + failed) % 200 == 1) Log.i("Trackpad", "reports sent " + sent + " failed " + failed);
@@ -316,8 +328,29 @@ public class MainActivity extends Activity {
             case MotionEvent.ACTION_DOWN:
                 pad.setAlpha(0.85f);
                 lastX = e.getX(); lastY = e.getY(); fracX = fracY = 0; moved = 0; downT = e.getEventTime();
+                twoFinger = reanchor = false;
+                return true;
+            case MotionEvent.ACTION_POINTER_DOWN:
+                twoFinger = true;  // stays set until all fingers lift: no tap, no cursor jump
+                scrollY = avgY(e);
+                wheel.reset();
+                return true;
+            case MotionEvent.ACTION_POINTER_UP:
+                reanchor = true;  // remaining finger re-anchors on its next move
                 return true;
             case MotionEvent.ACTION_MOVE: {
+                if (e.getPointerCount() >= 2) {
+                    float y = avgY(e);
+                    int n = wheel.add((y - scrollY) / density);
+                    scrollY = y;
+                    // fingers down -> content down: Android wheel +, macOS (natural) wheel -
+                    if (n != 0) send(0, 0, 0, hostFlipsWheel() ? -n : n);
+                    return true;
+                }
+                if (twoFinger) {  // back to one finger after scrolling: just track it, don't jump
+                    if (reanchor) { lastX = e.getX(); lastY = e.getY(); reanchor = false; }
+                    return true;
+                }
                 float dx = (e.getX() - lastX) / density, dy = (e.getY() - lastY) / density;
                 lastX = e.getX(); lastY = e.getY();
                 moved += Math.abs(dx) + Math.abs(dy);
@@ -329,7 +362,7 @@ public class MainActivity extends Activity {
             }
             case MotionEvent.ACTION_UP:
                 pad.setAlpha(1f);
-                if (e.getEventTime() - downT < TAP_MS && moved < TAP_DP) { send(1, 0, 0); send(0, 0, 0); }
+                if (!twoFinger && e.getEventTime() - downT < TAP_MS && moved < TAP_DP) { send(1, 0, 0); send(0, 0, 0); }
                 return true;
             case MotionEvent.ACTION_CANCEL:
                 pad.setAlpha(1f);
@@ -337,6 +370,12 @@ public class MainActivity extends Activity {
                 return true;
         }
         return false;
+    }
+
+    private static float avgY(MotionEvent e) {
+        float y = 0;
+        for (int i = 0; i < e.getPointerCount(); i++) y += e.getY(i);
+        return y / e.getPointerCount();
     }
 
     @Override protected void onDestroy() {

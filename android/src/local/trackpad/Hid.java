@@ -27,6 +27,23 @@ public final class Hid {
         return out;
     }
 
+    /** Two-finger scroll: finger travel (dp) to wheel steps, keeping the remainder so slow drags still scroll. */
+    public static final class Wheel {
+        private final float stepDp;
+        private float acc;
+
+        public Wheel(float stepDp) { this.stepDp = stepDp; }
+
+        public int add(float dyDp) {
+            acc += dyDp;
+            int n = (int) (acc / stepDp);
+            acc -= n * stepDp;
+            return n;
+        }
+
+        public void reset() { acc = 0; }
+    }
+
     private static int clamp(int v) { return Math.max(-127, Math.min(127, v)); }
 
     private static byte[] bytes(int... v) {
