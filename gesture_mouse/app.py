@@ -53,6 +53,20 @@ class Recorded:
     def scroll(self, dy): self.calls.append(("scroll", dy)); self.inner.scroll(dy)
 
 
+WINDOW = "gesture-mouse"
+
+
+def keep_awake():
+    """Stop App Nap from throttling us when the preview window is behind another app. Keep the token alive."""
+    try:
+        from Foundation import NSActivityLatencyCritical, NSActivityUserInitiated, NSProcessInfo
+        return NSProcessInfo.processInfo().beginActivityWithOptions_reason_(
+            NSActivityUserInitiated | NSActivityLatencyCritical, "camera hand tracking")
+    except Exception as e:  # tracking still works, just may slow down in the background
+        print(f"[주의] App Nap 방지 실패: {e}", flush=True)
+        return None
+
+
 STALL_S = 1.0  # no new frame for this long while control is ON -> OFF
 
 
@@ -71,6 +85,10 @@ def run(cap, controller, mouse, screen, actions):
         running_mode=vision.RunningMode.VIDEO, num_hands=1,
         min_hand_presence_confidence=0.3, min_tracking_confidence=0.3)  # default 0.5 drops frames too often
     logic = FrameLogic(controller, screen, actions)
+    awake = keep_awake()  # noqa: F841 — held for the whole run
+    cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(WINDOW, 480, 270)
+    cv2.setWindowProperty(WINDOW, cv2.WND_PROP_TOPMOST, 1)  # stay visible over Safari
     note = ""
     last_frame, stop = [time.monotonic()], threading.Event()
     threading.Thread(target=watchdog, args=(controller, last_frame, stop), daemon=True).start()
@@ -108,7 +126,7 @@ def run(cap, controller, mouse, screen, actions):
                 if isinstance(actions, LogActions) and actions.calls:
                     lines.append(f"dry action: {actions.calls[-1]}")
                 draw(frame, lm, lines)
-                cv2.imshow("gesture-mouse", frame)
+                cv2.imshow(WINDOW, frame)
     finally:
         stop.set()
 
