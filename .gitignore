@@ -4,3 +4,5 @@ __pycache__/
 .superpowers/
 .pytest_cache/
 logs/
+android/build/
+android/debug.keystore
