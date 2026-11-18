@@ -9,6 +9,7 @@ from gesture_mouse.gestures import (HoldTimer, OneEuroFilter, PinchDetector, Swi
                                     pinch_ratio, scroll_delta)
 
 FREEZE_RATIO = 0.35  # between press (0.25) and release (0.40): hold the cursor while a click is forming
+LOST_GRACE_S = 0.3  # tracking often drops a frame or two; turn control off only after this long
 STILL_DX = 0.01      # palm counts as still if the wrist moved less than this since the last frame
 
 
@@ -28,6 +29,7 @@ class FrameLogic:
         self.palm_swiped = False
         self.ratio = 0.0
         self.pose = "-"  # shown on the overlay for debugging
+        self.lost_since = None
 
     def toggle(self, now):
         self.c.toggle()
@@ -49,15 +51,19 @@ class FrameLogic:
         """Process one frame's landmarks (None = no hand). Returns a status note or None."""
         if lm is None:
             self.pose = "no hand"
+            self.c.release()  # never hold a button without a hand in view
             self.fx.reset(); self.fy.reset(); self.pinch.reset()
             self.scroll_y = None
             self.fist_hold.update(False, now); self.call_hold.update(False, now)
             self._end_palm(now)
-            if self.c.enabled:
+            if self.lost_since is None:
+                self.lost_since = now
+            if self.c.enabled and now - self.lost_since >= LOST_GRACE_S:
                 self.c.hand_lost()
                 return "OFF: hand lost"
             return None
 
+        self.lost_since = None
         dragging = self.pinch.pressed  # while dragging, other-looking poses are noise: keep dragging
         note = None
         if self.fist_hold.update(is_fist(lm) and not dragging, now):
