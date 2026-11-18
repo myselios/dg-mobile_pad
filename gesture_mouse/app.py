@@ -67,6 +67,48 @@ def keep_awake():
         return None
 
 
+LOG = Path(__file__).resolve().parent.parent / "logs" / "stats.log"
+
+
+class Stats:
+    """Once a second: fps, hand-detection rate, poses, frontmost app, time spent per stage. Printed and appended to logs/stats.log."""
+
+    def __init__(self):
+        LOG.parent.mkdir(exist_ok=True)
+        self.f = LOG.open("a", buffering=1)
+        self.f.write(f"# session {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        self.start = self.t = time.monotonic()
+        self._clear()
+
+    def _clear(self):
+        self.n = self.hands = 0
+        self.poses = {}
+        self.ms = {"read": 0.0, "detect": 0.0, "draw": 0.0}
+
+    def add(self, stage, seconds):
+        self.ms[stage] += seconds * 1000
+
+    def frame(self, has_hand, pose, enabled):
+        self.n += 1
+        self.hands += has_hand
+        self.poses[pose] = self.poses.get(pose, 0) + 1
+        now = time.monotonic()
+        if now - self.t < 1.0:
+            return
+        try:
+            from AppKit import NSWorkspace
+            front = NSWorkspace.sharedWorkspace().frontmostApplication().localizedName()
+        except Exception:
+            front = "?"
+        per = {k: round(v / self.n) for k, v in self.ms.items()}
+        line = (f"t={now - self.start:5.1f}s fps={self.n / (now - self.t):4.1f} hand={100 * self.hands // self.n:3d}% "
+                f"on={int(enabled)} front={front} ms/frame={per} poses={self.poses}")
+        print("[stats]", line, flush=True)
+        self.f.write(line + "\n")
+        self.t = now
+        self._clear()
+
+
 STALL_S = 1.0  # no new frame for this long while control is ON -> OFF
 
 
@@ -95,8 +137,11 @@ def run(cap, controller, mouse, screen, actions):
     t0, last_ts, fps, prev = time.monotonic(), -1, 0.0, time.monotonic()
     try:
         with vision.HandLandmarker.create_from_options(options) as landmarker:
+            stats = Stats()
             while True:
+                t_read = time.monotonic()
                 ok, frame = cap.read()
+                stats.add("read", time.monotonic() - t_read)
                 if not ok:
                     controller.hand_lost()
                     print("[stop] camera frame lost", flush=True)
@@ -107,9 +152,12 @@ def run(cap, controller, mouse, screen, actions):
                 ts = max(int((now - t0) * 1000), last_ts + 1)  # VIDEO mode needs strictly increasing ms
                 last_ts = ts
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                t_det = time.monotonic()
                 lm = to_landmarks(landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), ts))
+                stats.add("detect", time.monotonic() - t_det)
                 note = logic.step(lm, now) or note
 
+                t_draw = time.monotonic()
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord("q"):
                     return
@@ -127,6 +175,8 @@ def run(cap, controller, mouse, screen, actions):
                     lines.append(f"dry action: {actions.calls[-1]}")
                 draw(frame, lm, lines)
                 cv2.imshow(WINDOW, frame)
+                stats.add("draw", time.monotonic() - t_draw)
+                stats.frame(lm is not None, logic.pose, controller.enabled)
     finally:
         stop.set()
 
